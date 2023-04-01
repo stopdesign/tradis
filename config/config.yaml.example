@@ -1,0 +1,16 @@
+
+gateway:
+  host: 127.0.0.1
+  port: 4001
+
+
+redis:
+  host: 127.0.0.1
+  port: 6379
+  db: 0
+  password: null
+
+
+instruments:
+  - sid: SPY_URA
+  - sid: PAXOS_ETH

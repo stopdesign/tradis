@@ -1,0 +1,9 @@
+redis~=4.3
+pandas==1.5.3
+pandas-market-calendars==4.1.4
+coloredlogs==15.0.1
+PyYAML==5.4.1
+pytz==2022.7
+click==8.0.1
+pydantic==1.10.7
+git+ssh://git@github.com/stopdesign/ib_sync@main#egg=ib_sync

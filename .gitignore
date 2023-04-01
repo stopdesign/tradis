@@ -1,31 +1,14 @@
-/log
-/lib
-/www
-/data
-/coverage
-/node_modules
+/config/*.yaml
 *_local.*
-*.sqlite3*
-reload
 *.bak
-
-# tmp data
-/front/*.csv
-/src/*.csv
-/src/history/*.jsonl
 
 # File system caches
 .DS_Store
 ._*
 
-# misc
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
-
 # IDE system files
 .idea
+.vscode
 *.sublime-workspace
 *.sublime-project
 
@@ -38,17 +21,3 @@ reload
 # Temporary files
 *.py[oc]
 *~
-
-# front
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-/front/node_modules/
-/front/dist/
-/front/build/
-/front/.npm/
-/tmp/
-/src/front/static/
-
-# local config
-/src/*.yaml
