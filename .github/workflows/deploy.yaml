@@ -1,0 +1,24 @@
+name: deploy
+
+on:
+  push:
+
+env:
+  USER: root
+  SERVER: 144.202.50.93
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v3
+
+    - name: Deploy
+      run: | 
+        PROJECT=$(echo $GITHUB_REPOSITORY | awk -F"/" '{print (NF>1)? $NF : ""}')
+        eval `ssh-agent -s`
+        ssh-add - <<< "${{ secrets.MOBY_KEY }}"
+        rsync -e "ssh -o StrictHostKeyChecking=no" -rtvu . $USER@$SERVER:/opt/$PROJECT
+        ssh $USER@$SERVER /opt/$PROJECT/deploy.sh
