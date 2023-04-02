@@ -2,6 +2,7 @@ name: deploy
 
 on:
   push:
+  workflow_dispatch:
 
 env:
   USER: root
