@@ -195,7 +195,7 @@ class DataMiner:
                         break
                     t1 = datetime.utcfromtimestamp(ts)
                     end_dt = t1.strftime("%Y%m%d-%H:%M:%S")
-                    log.info("Loading history...", i, end_dt)
+                    log.info(f"Loading history ({i})... end_dt: {end_dt}")
                 else:
                     end_dt = ""
                 ib_res = (
