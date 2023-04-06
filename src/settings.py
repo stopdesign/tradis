@@ -32,6 +32,7 @@ class RedisConfig(BaseModel):
 class GatewayConfig(BaseModel):
     host: str = "127.0.0.1"
     port: int = 0
+    client_id: int = 45
 
 
 # Прочитать конфиг из файла

@@ -7,12 +7,13 @@ from time import monotonic, sleep
 
 import coloredlogs
 import redis
-from data_miner import DataMiner
-from ib_sync import IBSync
+from ib_sync import IBSync, IBThread
 from ibapi.common import BarData
+from termcolor import colored
+
+from data_miner import DataMiner
 from market_calendar import MarketCalendar
 from settings import AppConfig, app_config
-from termcolor import colored
 
 # Логгер для этого файла
 log = logging.getLogger("tradis")
@@ -29,33 +30,27 @@ coloredlogs.install(
 )
 
 
+DT_FMT = "%Y-%m-%d %H:%M:%S"
+
+
 def ts_to_dt(ts):
     return datetime.utcfromtimestamp(ts)
-
-
-DT_FMT = "%Y-%m-%d %H:%M:%S"
 
 
 def is_redis_available(r):
     try:
         r.ping()
-    except (redis.exceptions.ConnectionError, ConnectionRefusedError):
+    except Exception:
         return False
     return True
 
 
 class FatalException(Exception):
+    """
+    Ошибка, после которой нужен переконнект.
+    """
+
     pass
-
-
-class IBThread(threading.Thread):
-    def __init__(self, app):
-        self.app = app
-        super().__init__(target=self.run, daemon=True)
-
-    def run(self):
-        log.info("Run Message Thread")
-        self.app.run()
 
 
 class IBSyncData(IBSync):
@@ -198,8 +193,11 @@ class IBSyncData(IBSync):
             connection_updated = True
 
         # mass reconnection, data maintained
+        # FIXME: обработать not connected
+        # The following farms are connected: usfuture; usfarm; secdefnj.
+        # The following farms are not connected: ushmds.
         if errorCode == 1102:
-            txt = errorString.split("connected:")[1]
+            txt = errorString.split("are connected:")[1]
             for source in txt.split(";"):
                 source = source.strip().strip(".")
                 self.connections[source] = "connected"
@@ -304,7 +302,7 @@ class IBSyncData(IBSync):
                 endDateTime="",
                 durationStr="300 S",
                 barSizeSetting="1 min",
-                whatToShow="MIDPOINT",
+                whatToShow=data_type,
                 useRTH=0,
                 formatDate=2,
                 keepUpToDate=True,
@@ -322,6 +320,7 @@ class Tradis:
         self.running = True
 
         self.request_time = datetime.min
+        self.prev_miner = datetime.min
 
         log.info(colored("Start Tradis ⋅ﾐ(•ᵕ•)ﾉ", "magenta"))
         log.info(f"Gateway: {self.gateway}")
@@ -421,7 +420,7 @@ class Tradis:
                 break
         return connected
 
-    def maintain(self):
+    def maintain(self) -> None:
         """
         Проверка статуса подписок и задержки прихода данных.
         """
@@ -465,7 +464,58 @@ class Tradis:
         # Сбросить все статусы подписки на данные
         pass
 
+    def periodic_actions(self) -> None:
+        # Проверка связи с Redis
+        if not is_redis_available(self.rc):
+            log.error(f"Redis in unavailable")
+            sleep(5)
+            return
+
+        str_connections = json.dumps(self.ib.connections)
+        self.rc.set("connections", str_connections)
+
+        # Вывести строку статусов, если они изменились
+        if self.last_known_connections_status != str_connections:
+            self.print_connection_status()
+            self.last_known_connections_status = str_connections
+
+        # Проверки соединения и подписок на данные
+        if monotonic() - self.prev_maintain > 5:
+            self.prev_maintain = monotonic()
+            self.maintain()
+
+        # Проверка и заполнение сетки в базе
+        dt = datetime.utcnow()
+        # Это новая минута и прошло достаточно секунд от начала
+        if dt.minute != self.prev_miner.minute and dt.second > 30:
+            self.prev_miner = dt
+
+            self.print_connection_status()
+
+            # Не начинать загрузку из IB по сетке,
+            # если нет соединения с фермами данных.
+            if not self.ibkr_farms_connected():
+                log.info(colored("DataMiner SKIP", "red", attrs=["bold"]))
+                return
+
+            log.info(colored("DataMiner update", attrs=["bold"]))
+            dm = DataMiner(self.ib, self.rc, self.schedule)
+            dm.load_history_mode = self.history
+
+            for instrument in self.instruments:
+                try:
+                    dm.update_instrument(instrument)
+                except Exception as e:
+                    log.error(f"ERROR in DataMiner: {e}")
+                    log.exception(e)
+
+            log.info(colored("DataMiner done", attrs=["bold"]))
+
     def run(self):
+        """
+        Бесконечный цикл, в котором поддерживаются нужные
+        соединения с TWS/GW и нужные подписки на данные.
+        """
         while not sleep(0.1) and self.running:
             # Попытка дисконнекта, если есть чего
             try:
@@ -478,7 +528,7 @@ class Tradis:
             try:
                 host = self.gateway.host
                 port = self.gateway.port
-                client_id = 45
+                client_id = self.gateway.client_id
                 self.ib.tws_time = datetime.min
                 self.ib.connect(host, port, client_id)
             except Exception as e:
@@ -529,57 +579,13 @@ class Tradis:
             # В этом месте должно быть активное подключение
             self.request_tws_time()
 
-            prev_miner = datetime.min
-            prev_maintain = monotonic()
+            # Отсечки времени для periodic_actions
+            self.prev_maintain = monotonic()
 
             while not sleep(0.1) and self.ib.isConnected():
-                # Проверка связи с Redis
-                if not is_redis_available(self.rc):
-                    log.error(f"Redis in unavailable")
-                    sleep(5)
-                    continue
-
                 try:
-                    str_connections = json.dumps(self.ib.connections)
-
-                    self.rc.set("connections", str_connections)
-
-                    # Вывести строку статусов, если они изменились
-                    if self.last_known_connections_status != str_connections:
-                        self.print_connection_status()
-                        self.last_known_connections_status = str_connections
-
-                    # Проверки соединения и подписок на данные
-                    if monotonic() - prev_maintain > 5:
-                        prev_maintain = monotonic()
-                        self.maintain()
-
-                    # Проверка и заполнение сетки в базе
-                    dt = datetime.utcnow()
-                    # Это новая минута и прошло достаточно секунд от начала
-                    if dt.minute != prev_miner.minute and dt.second > 30:
-                        prev_miner = dt
-
-                        self.print_connection_status()
-
-                        # Не начинать загрузку из IB по сетке,
-                        # если нет соединения с фермами данных.
-                        if not self.ibkr_farms_connected():
-                            log.info(colored("DataMiner SKIP", "red", attrs=["bold"]))
-                            continue
-
-                        log.info(colored("DataMiner update", attrs=["bold"]))
-                        dm = DataMiner(self.ib, self.rc, self.schedule)
-                        dm.load_history_mode = self.history
-
-                        for instrument in self.instruments:
-                            try:
-                                dm.update_instrument(instrument)
-                            except Exception as e:
-                                log.error(f"ERROR in DataMiner: {e}")
-                                log.exception(e)
-
-                        log.info(colored("DataMiner done", attrs=["bold"]))
+                    # Операции, которые нужно постоянно повторять
+                    self.periodic_actions()
 
                 except (KeyboardInterrupt, SystemExit) as e:
                     raise e
@@ -595,8 +601,6 @@ class Tradis:
 
 
 if __name__ == "__main__":
-    # Загрузка конфига
-
     tradis = Tradis(app_config)
 
     while True:
@@ -613,6 +617,6 @@ if __name__ == "__main__":
             log.exception(e)
             sleep(5)
 
-    threads = threading.enumerate()
-    for thread in threads:
-        print(f"thread alive: {thread}")
+    # Для отладки выводится список активных потоков
+    for thread in threading.enumerate():
+        log.warning(f"Thread alive: {thread}")

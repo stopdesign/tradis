@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 import pandas as pd
 import pandas_market_calendars as mcal
 import redis
+
 from market_calendar import MarketCalendar
 
 # Логгер для этого файла
@@ -26,8 +27,15 @@ DT_FMT = "%Y-%m-%d %H:%M:%S"
 class DataMiner:
     rc: redis.Redis
     data_delay: int = 0
-    load_limit: int = 1000  # сколько данных максимум забирать из базы
-    load_margin: int = 5  # сколько данных в любом случае забирать
+
+    # Cколько данных максимум забирать из базы для поиска not final.
+    # Не учитывается в режиме load_history_mode.
+    load_limit: int = 1000
+
+    # Сколько данных в любом случае забирать.
+    # Запас вокруг данных в статусе not final.
+    load_margin: int = 5
+
     load_history_mode: bool = False
 
     def __init__(self, ib, rc: redis.Redis, schedule: MarketCalendar) -> None:
@@ -111,12 +119,13 @@ class DataMiner:
 
         return df
 
-    def _validate_db_bar(self, bar):
-        """
-        Хорошим считается бар, в котором есть dt и цена, флаг closed или empty.
-        """
+    def _final_bar(self, bar):
         s = bar.db if type(bar.db) is str else ""
         return '{"dt":' in s and ('"o":' in s or '"closed":' in s or '"empty":' in s)
+
+    def _has_data(self, bar):
+        s = bar.db if type(bar.db) is str else ""
+        return '{"dt":' in s and '"o":' in s
 
     def load_redis_data(self, grid: pd.DataFrame, instrument: dict):
         """
@@ -131,20 +140,20 @@ class DataMiner:
         grid["db"] = grid.ts.map(dict(db_data))
 
         # Статус интервала из базы
-        grid["final"] = grid.apply(self._validate_db_bar, axis=1)
+        grid["final"] = grid.apply(self._final_bar, axis=1)
+        grid["has_data"] = grid.apply(self._has_data, axis=1)
 
         return grid
 
-    # def get_min_editable_bar_ts(self, grid):
-    #     """
-    #     Интервал не слишком старый для редактирования.
+    def get_min_editable_bar_ts(self, grid):
+        """
+        Интервал не слишком старый для редактирования.
 
-    #     Иногда IBKR меняет старые данные.
-    #     После закрытия торговой сессии присылают данные премаркета.
-    #     Приходится это игнорировать, т.к. это ломает импорт.
-    #     Лимит должен быть меньше, который покрывается API (1000 минут).
-    #     """
-    #     return int(grid.ts[-1]) - 3600 * 5
+        Иногда IBKR меняет старые данные.
+        После закрытия торговой сессии присылают данные премаркета.
+        Приходится это игнорировать, т.к. это ломает импорт.
+        """
+        return int(grid.ts[-1]) - 3600 * 1
 
     def validate_ibkr_res(self, res):
         """
@@ -163,12 +172,16 @@ class DataMiner:
         Делается несколько попыток с минимальным перерывом.
         """
 
-        to_load_sec = min(to_load * 60, 3600 * 24)
+        to_load_sec = to_load * 60
         duration = f"{to_load_sec} S"
 
         res = {"data": []}
 
-        # print(f"TO LOAD {to_load} {instrument}")
+        log.info(
+            f"TO LOAD: {instrument['sid']}, "
+            f"minutes: {to_load}, from: {from_ts}, "
+            f"duration: {duration}"
+        )
 
         contract = self.ib.contract_for_sid(instrument["sid"])
 
@@ -182,7 +195,7 @@ class DataMiner:
                         break
                     t1 = datetime.utcfromtimestamp(ts)
                     end_dt = t1.strftime("%Y%m%d-%H:%M:%S")
-                    print("Loading...", i, end_dt)
+                    log.info("Loading history...", i, end_dt)
                 else:
                     end_dt = ""
                 ib_res = (
@@ -193,6 +206,8 @@ class DataMiner:
                 )
         else:
             ib_res = self.ib.get_historical_data(contract, end_dt="", duration=duration)
+
+        log.info(f"Loaded from IB: {len(ib_res)}")
 
         # результат выдать в виде json bar
         ib_data = []
@@ -218,16 +233,33 @@ class DataMiner:
             log.info(f"Grid is full for {instrument}")
             return grid
 
+        # Для корректной работы Empty FSM нужно при загрузке из IB зацепить
+        # интервал с данными. Следовательно, для акций (с премаркетом)
+        # нужно доматывать в прошлое до последнего интервала до перерыва.
+        grid_has_data = grid[(grid.has_data == True) & (grid.open == True)]
+
         # Посчитать количество интервалов, которые нужно загрузить
+
         first_not_final_ts = grid_not_final.ts[0]
-        to_load = grid[grid.ts >= first_not_final_ts].shape[0]
+
+        if grid_has_data.empty:
+            last_data_ts = None
+        else:
+            last_data_ts = grid_has_data.ts[-1]
+
+        first_to_load_ts = first_not_final_ts
+
+        # Для акций учитывается последний интервал с данными, если он был.
+        # FIXME: корректно определить тип stocks
+        if instrument["sid"].count("_") == 1 and "PAXOS" not in instrument["sid"]:
+            if last_data_ts:
+                first_to_load_ts = min(first_not_final_ts, last_data_ts)
+
+        to_load = grid[grid.ts >= first_to_load_ts].shape[0]
         to_load = min(to_load + self.load_margin, self.load_limit)
 
-        # print("grid_not_final")
-        # print(grid_not_final)
-
         # Попытка загрузки данных из IBKR
-        if res := self.load_ibkr_data(instrument, to_load, first_not_final_ts):
+        if res := self.load_ibkr_data(instrument, to_load, first_to_load_ts):
             # TODO: поддержка этого
             # Время задержки данных для аккаунта без подписки
             # self.data_delay = res.json.get("mktDataDelay") or 0
@@ -244,10 +276,27 @@ class DataMiner:
     def _empty_bar_fsm(self, empty_bar_state, row):
         """
         Empty bar validation FSM.
+
+        Определяем, является ли отсутствие данных признаком ошибки,
+        или сделок не было в начале торгового дня (премаркет акций).
+
+        Сначала empty_bar_state = None.
+        Если интервал из IB содержит данные, то ставим has_data.
+        После этого можно делать какие-то выводы про Error vs Empty.
+
+        Если в последующих интервалах данных нет...
+            и биржа закрыта >> closed
+            и биржа открыта, но до этого была закрыта >> empty_ok
+
+        Если пришли данные, то FSM возвращается к началу.
+
+        Для корректной работы нужно зацепить интервал с данными.
+        Следовательно, для акций (с премаркетом) нужно доматывать
+        в прошлое до последнего рабочего интервала.
         """
-        if row.ib:
+        if row.ib and type(row.ib) is dict:
             empty_bar_state = "has_data"
-        if empty_bar_state and not row.ib:
+        if empty_bar_state and not (row.ib and type(row.ib) is dict):
             if not row.open:
                 empty_bar_state = "closed"
             elif empty_bar_state == "closed":
@@ -267,12 +316,17 @@ class DataMiner:
         # FSM for possibility of empty bar state
         empty_bar_state = None
 
+        # min_editable_bar_ts = self.get_min_editable_bar_ts(grid)
+
         for row in grid.itertuples():
             # Empty bar FSM needs full grid (with final bars)
             empty_bar_state = self._empty_bar_fsm(empty_bar_state, row)
 
-            # if row.ts < self.get_min_editable_bar_ts(grid):
-            #     continue
+            # Закомментировано, т.к. задача решается через row.final
+            # # Запрет редактирования старых интервалов,
+            # # для которых в базе уже есть что-то осмысленное
+            # if row.db and type(row.db) is str and row.ts < min_editable_bar_ts:
+            #     ...
 
             if row.final:
                 continue
@@ -285,7 +339,7 @@ class DataMiner:
             if not row.open:
                 # Биржа закрыта
                 bar = {"closed": 1}
-            elif row.ib:
+            elif row.ib and type(row.ib) is dict:
                 # Есть нормальный интервал
                 bar = row.ib.copy()
                 if late and not self.load_history_mode:
@@ -338,7 +392,8 @@ class DataMiner:
         self.rc.zadd(key, {bar_str: row.ts})
 
         # FIXME: включить отправку бара в события
-        # возможно, не в режиме history...
+        # Возможно, не в режиме history...
+        # Возможно, только последние минут 10.
         # key_1 = "{sid}".format(**instrument)
         # bar_str = json.dumps(bar, separators=(",", ":"))
         # self.rc.publish(f"{key_1}:BARS", bar_str)
