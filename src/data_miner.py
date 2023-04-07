@@ -377,10 +377,16 @@ class DataMiner:
         # Добавить дату
         dt = row.Index.to_pydatetime()
         dt_str = row.Index.strftime(DT_FMT)
-        bar = dict(dt=dt_str, **bar)
+        bar_data = dict(dt=dt_str, **bar)
 
+        sid = instrument["sid"]
         key = get_key(instrument)
-        bar_str = json.dumps(bar, separators=(",", ":"))
+
+        msg_data = bar_data.copy()
+        msg_data["sid"] = sid
+
+        msg_str = json.dumps(msg_data, indent=None, default=str)
+        bar_str = json.dumps(bar_data, separators=(",", ":"))
 
         # Не сохранять такую же строку повторно (не учитывая флаг fix)
         # FIXME: выглядит тупо
@@ -397,7 +403,5 @@ class DataMiner:
 
         # Данные за последние 10 минут отправляются в REDIS
         if not self.load_history_mode and diff < 600:
-            key_1 = "{sid}".format(**instrument)
-            msg_str = json.dumps(bar, separators=(",", ":"))
-            a = self.rc.publish(f"{key_1}:BARS", msg_str)
+            a = self.rc.publish(f"{sid}:BARS", msg_str)
             log.info(f"Redis 1-min [miner]: {msg_str} - {a}")
