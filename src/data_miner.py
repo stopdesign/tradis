@@ -375,6 +375,7 @@ class DataMiner:
         Запись в базу с заменой старых данных.
         """
         # Добавить дату
+        dt = row.Index.to_pydatetime()
         dt_str = row.Index.strftime(DT_FMT)
         bar = dict(dt=dt_str, **bar)
 
@@ -391,9 +392,12 @@ class DataMiner:
         self.rc.zremrangebyscore(key, row.ts, row.ts)
         self.rc.zadd(key, {bar_str: row.ts})
 
-        # FIXME: включить отправку бара в события
-        # Возможно, не в режиме history...
-        # Возможно, только последние минут 10.
-        # key_1 = "{sid}".format(**instrument)
-        # bar_str = json.dumps(bar, separators=(",", ":"))
-        # self.rc.publish(f"{key_1}:BARS", bar_str)
+        now = datetime.utcnow().replace(tzinfo=timezone.utc)
+        diff = (now - dt).total_seconds()
+
+        # Данные за последние 10 минут отправляются в REDIS
+        if not self.load_history_mode and diff < 600:
+            key_1 = "{sid}".format(**instrument)
+            msg_str = json.dumps(bar, separators=(",", ":"))
+            a = self.rc.publish(f"{key_1}:BARS", msg_str)
+            log.info(f"Redis 1-min [miner]: {msg_str} - {a}")

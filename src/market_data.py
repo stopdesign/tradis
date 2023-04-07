@@ -324,6 +324,7 @@ class Tradis:
 
         log.info(colored("Start Tradis ⋅ﾐ(•ᵕ•)ﾉ", "magenta"))
         log.info(f"Gateway: {self.gateway}")
+        log.info(f"Redis: {self.redis_config}")
         log.info(f"History: {self.history}")
 
         self.subscriptions = []
