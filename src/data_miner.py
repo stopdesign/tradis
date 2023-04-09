@@ -185,6 +185,10 @@ class DataMiner:
 
         contract = self.ib.contract_for_sid(instrument["sid"])
 
+        data_type = "TRADES"
+        if contract.secType in ["CASH"]:
+            data_type = "MIDPOINT"
+
         if self.load_history_mode:
             ib_res = []
             duration = "86400 S"
@@ -200,12 +204,20 @@ class DataMiner:
                     end_dt = ""
                 ib_res = (
                     self.ib.get_historical_data(
-                        contract, end_dt=end_dt, duration=duration
+                        contract,
+                        data_type=data_type,
+                        end_dt=end_dt,
+                        duration=duration
                     )
                     + ib_res
                 )
         else:
-            ib_res = self.ib.get_historical_data(contract, end_dt="", duration=duration)
+            ib_res = self.ib.get_historical_data(
+                contract,
+                data_type=data_type,
+                end_dt="",
+                duration=duration
+            )
 
         log.info(f"Loaded from IB: {len(ib_res)}")
 

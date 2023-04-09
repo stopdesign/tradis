@@ -33,6 +33,7 @@ class CustomPaxos(PandasMarketCalendar, ABC):
     """
     Расписание для крипты в IB.
     """
+
     regular_market_times = {
         "market_open": ((None, time(16, 1), -1),),
         "market_close": ((None, time(16)),),
@@ -57,12 +58,32 @@ class CustomPaxos(PandasMarketCalendar, ABC):
         return pytz.timezone("US/Eastern")
 
 
+class Forex(PandasMarketCalendar, ABC):
+    """
+    Расписание Forex.
+    """
+
+    regular_market_times = {
+        "market_open": ((None, time(16, 15), -1),),
+        "market_close": ((None, time(16)),),
+    }
+
+    @property
+    def name(self):
+        return "Forex"
+
+    @property
+    def tz(self):
+        return pytz.timezone("America/Chicago")
+
+
 IBKR_TO_MCAL = {
     "NASDAQ": "NASDAQ",
     "NYMEX": "CMEGlobex_NatGas",  # FIXME: разный режим для разных инструментов
     "NYSE": "NYSE",
     "ARCA": "NYSE",
     "CME": "CME_Rate",
+    "IDEALPRO": "Forex",
     "CBOT": "CustomCBOT",
     "PAXOS": "CustomPaxos",
 }

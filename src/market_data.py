@@ -276,7 +276,7 @@ class IBSyncData(IBSync):
         self.unsubscribe_if_active(sid, request_type)
 
         data_type = "TRADES"
-        if request_type == "historical" and contract.secType == "CRYPTO":
+        if request_type == "historical" and contract.secType in ["CRYPTO", "CASH"]:
             data_type = "MIDPOINT"
 
         r_id = self.r_id
