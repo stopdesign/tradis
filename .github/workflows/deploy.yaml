@@ -2,6 +2,8 @@ name: deploy
 
 on:
   push:
+    branches:
+      - main
   workflow_dispatch:
 
 env:
@@ -22,4 +24,13 @@ jobs:
         eval `ssh-agent -s`
         ssh-add - <<< "${{ secrets.MOBY_KEY }}"
         rsync -e "ssh -o StrictHostKeyChecking=no" -rtvu . $USER@$SERVER:/opt/$PROJECT
-        ssh $USER@$SERVER /opt/$PROJECT/deploy.sh
+        ssh $USER@$SERVER << EOF
+          echo -e "Deploying $PROJECT...\n"
+          cd /opt/$PROJECT
+          git ls-files . --exclude-standard --others | xargs --no-run-if-empty rm
+          virtualenv -p python3 .venv
+          sh -c "make pip"
+          sh -c "systemctl restart $PROJECT*"
+          echo -e "\nServices restarted:"
+          sh -c "systemctl | grep $PROJECT"
+        EOF
