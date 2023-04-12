@@ -9,8 +9,7 @@ help :: # Show this message
 	@awk '{FS=": #"} $(RGX) {$(FMT),$$1,$$2}' $(MAKEFILE_LIST)
 
 pip: # Install python dependencies
-	$(VENV) pip install -r $(BASE_DIR)/requirements.txt \
-	--upgrade -q --no-python-version-warning
+	$(VENV) pip install -r $(BASE_DIR)/requirements.txt --upgrade
 
 run: # Run Tradis market_data
 	$(VENV) python market_data.py

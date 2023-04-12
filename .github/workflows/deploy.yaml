@@ -30,7 +30,7 @@ jobs:
           git ls-files . --exclude-standard --others | xargs --no-run-if-empty rm
           virtualenv -p python3 .venv
           sh -c "make pip"
-          sh -c "systemctl restart $PROJECT*"
+          sh -c "systemctl restart $PROJECT"
           echo -e "\nServices restarted:"
           sh -c "systemctl | grep $PROJECT"
         EOF
