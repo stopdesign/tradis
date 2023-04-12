@@ -32,5 +32,5 @@ jobs:
           sh -c "make pip"
           sh -c "systemctl restart $PROJECT"
           echo -e "\nServices restarted:"
-          sh -c "systemctl | grep $PROJECT"
+          sh -c "systemctl status $PROJECT"
         EOF
