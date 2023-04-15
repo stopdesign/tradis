@@ -171,7 +171,9 @@ class IBSyncData(IBSync):
     def connectionClosed(self):
         super().connectionClosed()
         # Все подписки сбрасываются, когда соединение закрывается
-        self.connections["tws"] = "disconnected"
+        for key in self.connections.keys():
+            self.connections[key] = "disconnected"
+        self.connections["ibkr"] = ""
         for r_id, sub in self.request.items():
             if not sub.get("cancelled"):
                 log.error(f"Subscription cancelled: {r_id} {sub['sid']}")
@@ -539,6 +541,7 @@ class Tradis:
                     log.warning("Enter IBKR long break")
                     self.in_long_break = True
                     self.ib.disconnect()
+                    self.rc.set("connections", json.dumps(self.ib.connections))
                 continue
             else:
                 if self.in_long_break is None:
