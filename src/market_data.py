@@ -540,9 +540,12 @@ class Tradis:
                     self.in_long_break = True
                     self.ib.disconnect()
                 continue
-            elif self.in_long_break:
-                log.warning("Exit IBKR long break")
-                self.in_long_break = False
+            else:
+                if self.in_long_break is None:
+                    self.in_long_break = False
+                if self.in_long_break is True:
+                    log.warning("Exit IBKR long break")
+                    self.in_long_break = False
 
             # Попытка дисконнекта, если есть чего
             try:
