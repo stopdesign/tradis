@@ -4,6 +4,7 @@ import threading
 from datetime import datetime, timedelta
 from decimal import Decimal
 from time import monotonic, sleep
+from zoneinfo import ZoneInfo
 
 import coloredlogs
 import redis
@@ -318,6 +319,7 @@ class Tradis:
         self.history = config.history
 
         self.running = True
+        self.in_long_break = None
 
         self.request_time = datetime.min
         self.prev_miner = datetime.min
@@ -468,9 +470,7 @@ class Tradis:
     def periodic_actions(self) -> None:
         # Проверка связи с Redis
         if not is_redis_available(self.rc):
-            log.error(f"Redis in unavailable")
-            sleep(5)
-            return
+            raise FatalException("redis_unavailable")
 
         str_connections = json.dumps(self.ib.connections)
         self.rc.set("connections", str_connections)
@@ -485,32 +485,44 @@ class Tradis:
             self.prev_maintain = monotonic()
             self.maintain()
 
-        # Проверка и заполнение сетки в базе
+    def try_data_miner(self) -> None:
+        """
+        Проверка и заполнение сетки в базе.
+        """
         dt = datetime.utcnow()
         # Это новая минута и прошло достаточно секунд от начала
         if dt.minute != self.prev_miner.minute and dt.second > 30:
             self.prev_miner = dt
 
-            self.print_connection_status()
+            if self.in_long_break is False:
+                self.print_connection_status()
 
-            # Не начинать загрузку из IB по сетке,
-            # если нет соединения с фермами данных.
-            if not self.ibkr_farms_connected():
-                log.info(colored("DataMiner SKIP", "red", attrs=["bold"]))
-                return
-
-            log.info(colored("DataMiner update", attrs=["bold"]))
             dm = DataMiner(self.ib, self.rc, self.schedule)
             dm.load_history_mode = self.history
 
+            online = self.ibkr_farms_connected() and self.in_long_break is False
+            if online:
+                log.info(colored("DataMiner update", "green", attrs=["bold"]))
+            else:
+                log.info(colored("DataMiner offline", "red", attrs=["bold"]))
+
             for instrument in self.instruments:
                 try:
-                    dm.update_instrument(instrument)
+                    dm.update_instrument(instrument, online)
                 except Exception as e:
                     log.error(f"ERROR in DataMiner: {e}")
                     log.exception(e)
 
             log.info(colored("DataMiner done", attrs=["bold"]))
+
+    def long_break(self) -> bool:
+        """
+        Пятничный долгий перерыв IBKR.
+        Часовой пояс Los Angeles, чтобы перерыв поместился в один день.
+        Вообще он с 20, но после 17 всё равно ничего не работает.
+        """
+        now = datetime.now(ZoneInfo("America/Los_Angeles"))
+        return now.isoweekday() == 5 and now.hour >= 19 and now.minute >= 30
 
     def run(self):
         """
@@ -518,6 +530,20 @@ class Tradis:
         соединения с TWS/GW и нужные подписки на данные.
         """
         while not sleep(0.1) and self.running:
+            # В любом случае можно запустить DataMiner
+            self.try_data_miner()
+
+            # Во время большого перерыва ничего не делать
+            if self.long_break():
+                if not self.in_long_break:
+                    log.warning("Enter IBKR long break")
+                    self.in_long_break = True
+                    self.ib.disconnect()
+                continue
+            elif self.in_long_break:
+                log.warning("Exit IBKR long break")
+                self.in_long_break = False
+
             # Попытка дисконнекта, если есть чего
             try:
                 if self.ib:
@@ -584,9 +610,13 @@ class Tradis:
             self.prev_maintain = monotonic()
 
             while not sleep(0.1) and self.ib.isConnected():
+                if self.long_break():
+                    break
+
                 try:
                     # Операции, которые нужно постоянно повторять
                     self.periodic_actions()
+                    self.try_data_miner()
 
                 except (KeyboardInterrupt, SystemExit) as e:
                     raise e

@@ -43,7 +43,7 @@ class DataMiner:
         self.ib = ib
         self.schedule = schedule
 
-    def update_instrument(self, instrument):
+    def update_instrument(self, instrument, online=True):
         now = datetime.utcnow().replace(tzinfo=timezone.utc)
 
         # Сделать минутную сетку
@@ -53,7 +53,8 @@ class DataMiner:
         grid = self.load_redis_data(grid, instrument)
 
         # Заполнить пробелы данными из IBKR
-        grid = self.fill_ibkr_data(grid, instrument)
+        if online:
+            grid = self.fill_ibkr_data(grid, instrument)
 
         # Сравнить данные из базы и из IBKR, обновить при различиях.
         self.update_db(grid, instrument)
