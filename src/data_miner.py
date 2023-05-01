@@ -67,12 +67,7 @@ class DataMiner:
         """
         working_minutes_cnt = self.load_limit
 
-        exchange = instrument["sid"].split("_")[0]
-
-        # is_open = self.schedule.is_open(symbol, dt)
-        # is_rth = self.schedule.is_rth(symbol, dt)
-
-        calendar = self.schedule.get_calendar(exchange)
+        calendar = self.schedule.get_calendar(instrument["sid"])
 
         # Запас, чтобы покрыть 1000 минут с учетом выходных,
         # иначе будет ошибка "indexer is out-of-bounds" в iloc.
@@ -208,7 +203,8 @@ class DataMiner:
                         contract,
                         data_type=data_type,
                         end_dt=end_dt,
-                        duration=duration
+                        duration=duration,
+                        timeout=30,
                     )
                     + ib_res
                 )
@@ -217,7 +213,8 @@ class DataMiner:
                 contract,
                 data_type=data_type,
                 end_dt="",
-                duration=duration
+                duration=duration,
+                timeout=10,
             )
 
         log.info(f"Loaded from IB: {len(ib_res)}")
