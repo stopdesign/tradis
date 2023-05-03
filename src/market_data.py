@@ -186,7 +186,7 @@ class IBSyncData(IBSync):
         """
         value = value.replace("The following farms", "")
         value = value.replace("are connected:", " ON:")
-        value = value.replace("are not connected:", " disconnected:")
+        value = value.replace("are not connected:", " OFF:")
         value = value.replace(" OFF", " OFF ")
         value = value.lower()
         value = value.replace(" inactive", " inactive ")
@@ -197,11 +197,11 @@ class IBSyncData(IBSync):
 
         for token in value.lower().split():
             if token == "on":
-                status = "OK"
-            elif token == "disconnected":
-                status = token
+                status = "connected"
+            elif token == "off":
+                status = "disconnected"
             elif token == "inactive":
-                status = token
+                status = "inactive"
             else:
                 res[token] = str(status)
 
@@ -225,6 +225,7 @@ class IBSyncData(IBSync):
 
         # mass reconnection, data maintained
         if errorCode == 1102:
+            source = errorString.split("data maintained.")[1]
             res = self._parse_status(errorString)
             self.connections.update(res)
             self.connections["ibkr"] = "connected"
