@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 import threading
 from datetime import datetime, timedelta
 from decimal import Decimal
@@ -179,6 +180,33 @@ class IBSyncData(IBSync):
                 log.error(f"Subscription cancelled: {r_id} {sub['sid']}")
                 self.request[r_id]["cancelled"] = True
 
+    def _parse_status(self, value: str) -> dict:
+        """
+        Парсинг строки статуса из строки ошибки.
+        """
+        value = value.replace("The following farms", "")
+        value = value.replace("are connected:", " ON:")
+        value = value.replace("are not connected:", " disconnected:")
+        value = value.replace(" OFF", " OFF ")
+        value = value.lower()
+        value = value.replace(" inactive", " inactive ")
+        value = re.sub(r"[\s\.;:,]+", " ", value).strip()
+
+        status = "--"
+        res = {}
+
+        for token in value.lower().split():
+            if token == "on":
+                status = "OK"
+            elif token == "disconnected":
+                status = token
+            elif token == "inactive":
+                status = token
+            else:
+                res[token] = str(status)
+
+        return res
+
     def error(self, reqId: int, errorCode: int, errorString: str, ordRejectJson=""):
         super().error(reqId, errorCode, errorString, ordRejectJson)
         connection_updated = False
@@ -196,14 +224,9 @@ class IBSyncData(IBSync):
             connection_updated = True
 
         # mass reconnection, data maintained
-        # FIXME: обработать not connected
-        # The following farms are connected: usfuture; usfarm; secdefnj.
-        # The following farms are not connected: ushmds.
         if errorCode == 1102:
-            txt = errorString.split("are connected:")[1]
-            for source in txt.split(";"):
-                source = source.strip().strip(".")
-                self.connections[source] = "connected"
+            res = self._parse_status(errorString)
+            self.connections.update(res)
             self.connections["ibkr"] = "connected"
             connection_updated = True
 
