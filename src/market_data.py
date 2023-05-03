@@ -184,6 +184,7 @@ class IBSyncData(IBSync):
         """
         Парсинг строки статуса из строки ошибки.
         """
+        value = value.replace("All data farms", "")
         value = value.replace("The following farms", "")
         value = value.replace("are connected:", " ON:")
         value = value.replace("are not connected:", " OFF:")
@@ -226,7 +227,7 @@ class IBSyncData(IBSync):
         # mass reconnection, data maintained
         if errorCode == 1102:
             source = errorString.split("data maintained.")[1]
-            res = self._parse_status(errorString)
+            res = self._parse_status(source)
             self.connections.update(res)
             self.connections["ibkr"] = "connected"
             connection_updated = True
