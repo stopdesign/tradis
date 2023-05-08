@@ -11,10 +11,10 @@ import coloredlogs
 import redis
 from ib_sync import IBSync, IBThread
 from ibapi.common import BarData
+from mcal import CalendarGrid
 from termcolor import colored
 
 from data_miner import DataMiner
-from market_calendar import MarketCalendar
 from settings import AppConfig, app_config
 
 # Логгер для этого файла
@@ -364,7 +364,7 @@ class Tradis:
             self.subscriptions.append({"sid": sid, "request_type": "real_time_bars"})
             self.subscriptions.append({"sid": sid, "request_type": "historical"})
 
-        self.schedule = MarketCalendar(sids, datetime.utcnow())
+        self.schedule = CalendarGrid(sids, datetime.utcnow())
 
         self.rc = redis.Redis(**dict(self.redis_config))
         self.ib = IBSyncData(self.rc, self.subscriptions)

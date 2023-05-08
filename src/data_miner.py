@@ -5,8 +5,7 @@ from datetime import datetime, timedelta, timezone
 import pandas as pd
 import pandas_market_calendars as mcal
 import redis
-
-from market_calendar import MarketCalendar
+from mcal import CalendarGrid
 
 # Логгер для этого файла
 log = logging.getLogger("data_miner")
@@ -38,7 +37,7 @@ class DataMiner:
 
     load_history_mode: bool = False
 
-    def __init__(self, ib, rc: redis.Redis, schedule: MarketCalendar) -> None:
+    def __init__(self, ib, rc: redis.Redis, schedule: CalendarGrid) -> None:
         self.rc = rc
         self.ib = ib
         self.schedule = schedule
