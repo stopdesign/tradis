@@ -637,6 +637,10 @@ class Tradis:
             # В этом месте должно быть активное подключение
             self.request_tws_time()
 
+            # Поддержка delayed data
+            self.ib.reqMarketDataType(3)
+            sleep(0.5)
+
             # Отсечки времени для periodic_actions
             self.prev_maintain = monotonic()
 
