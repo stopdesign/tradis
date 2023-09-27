@@ -500,7 +500,7 @@ class Tradis:
             raise FatalException("redis_unavailable")
 
         str_connections = json.dumps(self.ib.connections)
-        self.rc.set("connections", str_connections)
+        # self.rc.set("connections", str_connections)
 
         # Вывести строку статусов, если они изменились
         if self.last_known_connections_status != str_connections:
@@ -566,7 +566,7 @@ class Tradis:
                     log.warning("Enter IBKR long break")
                     self.in_long_break = True
                     self.ib.disconnect()
-                    self.rc.set("connections", json.dumps(self.ib.connections))
+                    # self.rc.set("connections", json.dumps(self.ib.connections))
                 continue
             else:
                 if self.in_long_break is None:
