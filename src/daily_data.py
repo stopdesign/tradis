@@ -66,7 +66,9 @@ class TradisDaily:
 
     def collect_one_sid(self, sid, end_dt):
         contract = self.ib.contract_for_sid(sid)
-        contract.includeExpired = True
+
+        if contract.secType == "FUT":
+            contract.includeExpired = True
 
         end_dt_str = end_dt.strftime("%Y%m%d 00:00:00 UTC")
 
