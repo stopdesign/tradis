@@ -58,35 +58,27 @@ class TradisDaily:
         self.ib.reqCurrentTime()
 
     def collect_data(self):
-        today = (datetime.utcnow() + timedelta(days=1)).date()
-
         for instrument in self.instruments:
-            self.collect_one_sid(instrument["sid"], today)
+            self.collect_one_sid(instrument["sid"])
             sleep(0.1)
 
-    def collect_one_sid(self, sid, end_dt):
+    def collect_one_sid(self, sid):
+        log.info(f"Processing: {sid}")
+
         contract = self.ib.contract_for_sid(sid)
 
         if contract.secType == "FUT":
             contract.includeExpired = True
 
-        end_dt_str = end_dt.strftime("%Y%m%d 00:00:00 UTC")
-
-        log.info(f"Processing: {sid}, end_dt: {end_dt_str}")
-
-        # details = ib.qualify_contract(contract)
-        # print(json.dumps(details.__dict__, default=str, indent=4))
-        # print(json.dumps(details.details.__dict__, default=str, indent=4))
-
         hist = self.ib.get_historical_data(
             contract,
-            end_dt=end_dt_str,
+            end_dt="",
             duration="1 Y",
             bar_size="1 day",
+            data_type="MIDPOINT",
             use_rth=False,
         )
         # hts = self.ib.get_head_timestamp(contract)
-        # print(hts)  # 1600128000
 
         ib_data = self.format_data(sid, hist)
 
@@ -110,7 +102,7 @@ class TradisDaily:
                 "h": line.high,
                 "l": line.low,
                 "c": line.close,
-                "v": round(float(line.volume), 2),
+                # "v": round(float(line.volume), 2),
             }
             ib_data.append((int(line.date), bar))
         return ib_data
